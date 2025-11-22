@@ -19,12 +19,16 @@
 #
 #
 
+import hashlib
+from base64 import b64encode
+
 from twisted.internet.testing import MemoryReactor
 
 import synapse.rest.admin
 from synapse.rest.client import login, reporting, room
 from synapse.server import HomeServer
 from synapse.types import JsonDict
+from synapse.util import json_encoder
 from synapse.util.clock import Clock
 
 from tests import unittest
@@ -152,6 +156,105 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
             channel.json_body["error"],
             msg=channel.result["body"],
         )
+
+    def test_msc4382_peppered_hash_verification_success(self) -> None:
+        """
+        MSC4382: Test that valid peppered hash verification succeeds.
+        """
+        # Create a mock encrypted event with verification_hash
+        plaintext = {"type": "m.room.message", "content": {"body": "Test message"}}
+        ciphertext = "AwgAEtABTestCiphertext"
+
+        # Compute correct verification_hash
+        plaintext_json = json_encoder.encode_canonical_json(plaintext)
+        hash_input = plaintext_json + ciphertext.encode("utf-8")
+        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
+
+        # Send encrypted event with verification_hash
+        encrypted_event = self.helper.send_event(
+            self.room_id,
+            "m.room.encrypted",
+            content={
+                "ciphertext": ciphertext,
+                "org.matrix.msc4382.verification_hash": verification_hash,
+            },
+            tok=self.admin_user_tok,
+        )
+        encrypted_event_id = encrypted_event["event_id"]
+
+        # Report with correct plaintext
+        channel = self.make_request(
+            "POST",
+            f"rooms/{self.room_id}/report/{encrypted_event_id}",
+            {
+                "reason": "Testing MSC4382",
+                "org.matrix.msc4382.plaintext": plaintext,
+            },
+            access_token=self.other_user_tok,
+        )
+        self.assertEqual(200, channel.code)
+
+        # Verify that the report was stored with verified=True
+        reports = self.get_success(
+            self.hs.get_datastores().main.db_pool.simple_select_list(
+                table="event_reports",
+                keyvalues={"event_id": encrypted_event_id},
+                retcols=["content"],
+                desc="get_event_reports",
+            )
+        )
+        self.assertEqual(len(reports), 1)
+        self.assertTrue(reports[0]["content"]["org.matrix.msc4382.verified"])
+
+    def test_msc4382_peppered_hash_verification_failure(self) -> None:
+        """
+        MSC4382: Test that invalid peppered hash verification fails.
+        """
+        # Create a mock encrypted event with verification_hash
+        plaintext = {"type": "m.room.message", "content": {"body": "Test message"}}
+        ciphertext = "AwgAEtABTestCiphertext"
+
+        # Compute correct verification_hash
+        plaintext_json = json_encoder.encode_canonical_json(plaintext)
+        hash_input = plaintext_json + ciphertext.encode("utf-8")
+        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
+
+        # Send encrypted event with verification_hash
+        encrypted_event = self.helper.send_event(
+            self.room_id,
+            "m.room.encrypted",
+            content={
+                "ciphertext": ciphertext,
+                "org.matrix.msc4382.verification_hash": verification_hash,
+            },
+            tok=self.admin_user_tok,
+        )
+        encrypted_event_id = encrypted_event["event_id"]
+
+        # Report with WRONG plaintext
+        wrong_plaintext = {"type": "m.room.message", "content": {"body": "Different message"}}
+        channel = self.make_request(
+            "POST",
+            f"rooms/{self.room_id}/report/{encrypted_event_id}",
+            {
+                "reason": "Testing MSC4382 failure",
+                "org.matrix.msc4382.plaintext": wrong_plaintext,
+            },
+            access_token=self.other_user_tok,
+        )
+        self.assertEqual(200, channel.code)
+
+        # Verify that the report was stored with verified=False
+        reports = self.get_success(
+            self.hs.get_datastores().main.db_pool.simple_select_list(
+                table="event_reports",
+                keyvalues={"event_id": encrypted_event_id},
+                retcols=["content"],
+                desc="get_event_reports",
+            )
+        )
+        self.assertEqual(len(reports), 1)
+        self.assertFalse(reports[0]["content"]["org.matrix.msc4382.verified"])
 
     def _assert_status(self, response_status: int, data: JsonDict) -> None:
         channel = self.make_request(
