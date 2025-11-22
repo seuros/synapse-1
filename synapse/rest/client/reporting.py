@@ -19,9 +19,11 @@
 #
 #
 
+import hashlib
 import logging
+from base64 import b64encode
 from http import HTTPStatus
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from pydantic import StrictStr
 
@@ -35,6 +37,7 @@ from synapse.http.servlet import (
 from synapse.http.site import SynapseRequest
 from synapse.types import JsonDict
 from synapse.types.rest import RequestBodyModel
+from synapse.util import json_encoder
 
 from ._base import client_patterns
 
@@ -43,6 +46,37 @@ if TYPE_CHECKING:
 
 
 logger = logging.getLogger(__name__)
+
+
+def verify_peppered_hash(
+    plaintext_event: JsonDict,
+    ciphertext: str,
+    verification_hash: str,
+) -> bool:
+    """
+    Verify MSC4382 peppered hash for E2EE content reports.
+
+    Args:
+        plaintext_event: The claimed plaintext event structure
+        ciphertext: The ciphertext from the encrypted event
+        verification_hash: The stored verification hash
+
+    Returns:
+        True if verification succeeds, False otherwise
+    """
+    try:
+        # Encode plaintext as canonical JSON
+        plaintext_json = json_encoder.encode_canonical_json(plaintext_event)
+
+        # Compute hash: SHA-256(plaintext || ciphertext)
+        hash_input = plaintext_json + ciphertext.encode("utf-8")
+        computed_hash = hashlib.sha256(hash_input).digest()
+        computed_hash_b64 = b64encode(computed_hash).decode("ascii")
+
+        return computed_hash_b64 == verification_hash
+    except Exception as e:
+        logger.warning("Failed to verify peppered hash: %s", e)
+        return False
 
 
 class ReportEventRestServlet(RestServlet):
@@ -99,12 +133,50 @@ class ReportEventRestServlet(RestServlet):
                     "it does not exist or you aren't able to see it."
                 )
 
+        # MSC4382: Verify peppered hash if plaintext provided
+        verified: Optional[bool] = None
+        plaintext_event = body.get("org.matrix.msc4382.plaintext")
+
+        if plaintext_event is not None:
+            # Check if this is an encrypted event with verification_hash
+            event_content = event.content
+            if event.type == "m.room.encrypted":
+                verification_hash = event_content.get(
+                    "org.matrix.msc4382.verification_hash"
+                )
+                ciphertext = event_content.get("ciphertext")
+
+                if verification_hash and ciphertext:
+                    verified = verify_peppered_hash(
+                        plaintext_event,
+                        ciphertext,
+                        verification_hash,
+                    )
+
+                    if not verified:
+                        logger.warning(
+                            "Report verification FAILED for event %s by user %s",
+                            event_id,
+                            user_id,
+                        )
+                    else:
+                        logger.info(
+                            "Report verification SUCCEEDED for event %s by user %s",
+                            event_id,
+                            user_id,
+                        )
+
+        # Store report with verification result
+        report_content = dict(body)
+        if verified is not None:
+            report_content["org.matrix.msc4382.verified"] = verified
+
         await self.store.add_event_report(
             room_id=room_id,
             event_id=event_id,
             user_id=user_id,
             reason=body.get("reason"),
-            content=body,
+            content=report_content,
             received_ts=self.clock.time_msec(),
         )
 
