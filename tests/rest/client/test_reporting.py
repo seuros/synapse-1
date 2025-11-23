@@ -20,6 +20,7 @@
 #
 
 import hashlib
+
 from base64 import b64encode
 
 from canonicaljson import encode_canonical_json
