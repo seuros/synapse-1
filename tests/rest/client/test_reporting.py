@@ -22,13 +22,13 @@
 import hashlib
 from base64 import b64encode
 
+from canonicaljson import encode_canonical_json
 from twisted.internet.testing import MemoryReactor
 
 import synapse.rest.admin
 from synapse.rest.client import login, reporting, room
 from synapse.server import HomeServer
 from synapse.types import JsonDict
-from synapse.util import json_encoder
 from synapse.util.clock import Clock
 
 from tests import unittest
@@ -166,7 +166,7 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
         ciphertext = "AwgAEtABTestCiphertext"
 
         # Compute correct verification_hash
-        plaintext_json = json_encoder.encode_canonical_json(plaintext)
+        plaintext_json = encode_canonical_json(plaintext)
         hash_input = plaintext_json + ciphertext.encode("utf-8")
         verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
 
@@ -204,7 +204,7 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
             )
         )
         self.assertEqual(len(reports), 1)
-        self.assertTrue(reports[0]["content"]["org.matrix.msc4382.verified"])
+        self.assertTrue(reports[0][0]["org.matrix.msc4382.verified"])
 
     def test_msc4382_peppered_hash_verification_failure(self) -> None:
         """
@@ -215,7 +215,7 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
         ciphertext = "AwgAEtABTestCiphertext"
 
         # Compute correct verification_hash
-        plaintext_json = json_encoder.encode_canonical_json(plaintext)
+        plaintext_json = encode_canonical_json(plaintext)
         hash_input = plaintext_json + ciphertext.encode("utf-8")
         verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
 
@@ -254,7 +254,7 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
             )
         )
         self.assertEqual(len(reports), 1)
-        self.assertFalse(reports[0]["content"]["org.matrix.msc4382.verified"])
+        self.assertFalse(reports[0][0]["org.matrix.msc4382.verified"])
 
     def _assert_status(self, response_status: int, data: JsonDict) -> None:
         channel = self.make_request(

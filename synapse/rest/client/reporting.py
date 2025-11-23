@@ -23,8 +23,9 @@ import hashlib
 import logging
 from base64 import b64encode
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
+from canonicaljson import encode_canonical_json
 from pydantic import StrictStr
 
 from synapse.api.errors import AuthError, Codes, NotFoundError, SynapseError
@@ -37,7 +38,6 @@ from synapse.http.servlet import (
 from synapse.http.site import SynapseRequest
 from synapse.types import JsonDict
 from synapse.types.rest import RequestBodyModel
-from synapse.util import json_encoder
 
 from ._base import client_patterns
 
@@ -66,7 +66,7 @@ def verify_peppered_hash(
     """
     try:
         # Encode plaintext as canonical JSON
-        plaintext_json = json_encoder.encode_canonical_json(plaintext_event)
+        plaintext_json = encode_canonical_json(plaintext_event)
 
         # Compute hash: SHA-256(plaintext || ciphertext)
         hash_input = plaintext_json + ciphertext.encode("utf-8")
@@ -134,7 +134,7 @@ class ReportEventRestServlet(RestServlet):
                 )
 
         # MSC4382: Verify peppered hash if plaintext provided
-        verified: Optional[bool] = None
+        verified: bool | None = None
         plaintext_event = body.get("org.matrix.msc4382.plaintext")
 
         if plaintext_event is not None:
