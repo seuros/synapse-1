@@ -169,7 +169,9 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
         # Compute correct verification_hash
         plaintext_json = encode_canonical_json(plaintext)
         hash_input = plaintext_json + ciphertext.encode("utf-8")
-        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
+        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode(
+            "ascii"
+        )
 
         # Send encrypted event with verification_hash
         encrypted_event = self.helper.send_event(
@@ -218,7 +220,9 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
         # Compute correct verification_hash
         plaintext_json = encode_canonical_json(plaintext)
         hash_input = plaintext_json + ciphertext.encode("utf-8")
-        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode("ascii")
+        verification_hash = b64encode(hashlib.sha256(hash_input).digest()).decode(
+            "ascii"
+        )
 
         # Send encrypted event with verification_hash
         encrypted_event = self.helper.send_event(
@@ -233,7 +237,10 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
         encrypted_event_id = encrypted_event["event_id"]
 
         # Report with WRONG plaintext
-        wrong_plaintext = {"type": "m.room.message", "content": {"body": "Different message"}}
+        wrong_plaintext = {
+            "type": "m.room.message",
+            "content": {"body": "Different message"},
+        }
         channel = self.make_request(
             "POST",
             f"rooms/{self.room_id}/report/{encrypted_event_id}",
