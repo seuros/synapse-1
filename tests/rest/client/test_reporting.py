@@ -29,6 +29,7 @@ from twisted.internet.testing import MemoryReactor
 import synapse.rest.admin
 from synapse.rest.client import login, reporting, room
 from synapse.server import HomeServer
+from synapse.storage._base import db_to_json
 from synapse.types import JsonDict
 from synapse.util.clock import Clock
 
@@ -207,7 +208,8 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
             )
         )
         self.assertEqual(len(reports), 1)
-        self.assertTrue(reports[0][0]["org.matrix.msc4382.verified"])
+        content = db_to_json(reports[0][0])
+        self.assertTrue(content["org.matrix.msc4382.verified"])
 
     def test_msc4382_peppered_hash_verification_failure(self) -> None:
         """
@@ -262,7 +264,8 @@ class ReportEventTestCase(unittest.HomeserverTestCase):
             )
         )
         self.assertEqual(len(reports), 1)
-        self.assertFalse(reports[0][0]["org.matrix.msc4382.verified"])
+        content = db_to_json(reports[0][0])
+        self.assertFalse(content["org.matrix.msc4382.verified"])
 
     def _assert_status(self, response_status: int, data: JsonDict) -> None:
         channel = self.make_request(
